@@ -16,7 +16,7 @@
 #include <GrowNetEEPROM.h>
 
 const uint8_t BTN_NORMAL = 2, BTN_PROBLEM = 3;
-const uint8_t LED_GREEN = 5, LED_RED = 6, LED_YELLOW = 7;
+const uint8_t PIN_OK = 5, PIN_PROBLEM = 6, PIN_UNSURE = 7;      // green, red, yellow LEDs
 
 float pool[GROWNET_POOL_BYTES / sizeof(float)];
 GrowNet net;
@@ -24,7 +24,7 @@ GrowNet net;
 void readInputs(float* x) { x[0] = analogRead(A0); x[1] = analogRead(A1); }
 
 void leds(bool g, bool r, bool y) {
-  digitalWrite(LED_GREEN, g); digitalWrite(LED_RED, r); digitalWrite(LED_YELLOW, y);
+  digitalWrite(PIN_OK, g ? HIGH : LOW); digitalWrite(PIN_PROBLEM, r ? HIGH : LOW); digitalWrite(PIN_UNSURE, y ? HIGH : LOW);
 }
 
 void teach(uint8_t label, uint8_t pin) {
@@ -40,7 +40,7 @@ void teach(uint8_t label, uint8_t pin) {
 void setup() {
   pinMode(BTN_NORMAL, INPUT_PULLUP);
   pinMode(BTN_PROBLEM, INPUT_PULLUP);
-  pinMode(LED_GREEN, OUTPUT); pinMode(LED_RED, OUTPUT); pinMode(LED_YELLOW, OUTPUT);
+  pinMode(PIN_OK, OUTPUT); pinMode(PIN_PROBLEM, OUTPUT); pinMode(PIN_UNSURE, OUTPUT);
   GrowNetEEPROM::begin();
   net.begin(2, 2, pool, sizeof(pool), analogRead(A0) + micros());
 
@@ -59,7 +59,7 @@ void loop() {
   if (digitalRead(BTN_PROBLEM) == LOW) teach(1, BTN_PROBLEM);
 
   if (net.examples() == 0) {              // not taught yet: blink yellow
-    leds(false, false, (millis() / 500) % 2);
+    leds(false, false, ((millis() / 500) % 2) == 1);
     return;
   }
   float x[2]; readInputs(x);
