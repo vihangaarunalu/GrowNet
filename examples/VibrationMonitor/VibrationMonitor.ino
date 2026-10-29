@@ -24,15 +24,15 @@ GrowNet net;
 
 void mpuBegin() {
   Wire.begin();
-  Wire.beginTransmission(MPU); Wire.write(0x6B); Wire.write(0); Wire.endTransmission();   // wake up
-  Wire.beginTransmission(MPU); Wire.write(0x1C); Wire.write(0); Wire.endTransmission();   // +-2 g
+  Wire.beginTransmission(MPU); Wire.write((uint8_t)0x6B); Wire.write((uint8_t)0); Wire.endTransmission();   // wake up
+  Wire.beginTransmission(MPU); Wire.write((uint8_t)0x1C); Wire.write((uint8_t)0); Wire.endTransmission();   // +-2 g
 }
 
 bool mpuRead(int16_t* a) {
-  Wire.beginTransmission(MPU); Wire.write(0x3B);
+  Wire.beginTransmission(MPU); Wire.write((uint8_t)0x3B);
   if (Wire.endTransmission(false) != 0) return false;
-  if (Wire.requestFrom(MPU, (uint8_t)6) != 6) return false;
-  for (int i = 0; i < 3; i++) { int16_t h = Wire.read(); a[i] = (h << 8) | Wire.read(); }
+  if (Wire.requestFrom((int)MPU, (int)6) != 6) return false;
+  for (int i = 0; i < 3; i++) { int hi = Wire.read(); int lo = Wire.read(); a[i] = (int16_t)((hi << 8) | lo); }
   return true;
 }
 
