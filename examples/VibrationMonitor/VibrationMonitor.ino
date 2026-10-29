@@ -14,7 +14,7 @@
 #include <GrowNet.h>
 #include <GrowNetEEPROM.h>
 
-const uint8_t MPU = 0x68;
+const uint8_t MPU_ADDR = 0x68;
 const char* NAMES[] = {"Normal", "Fault"};
 const uint8_t N_IN = 3, N_OUT = 2;
 const int WINDOW = 64;                      // samples per measurement
@@ -24,14 +24,14 @@ GrowNet net;
 
 void mpuBegin() {
   Wire.begin();
-  Wire.beginTransmission(MPU); Wire.write((uint8_t)0x6B); Wire.write((uint8_t)0); Wire.endTransmission();   // wake up
-  Wire.beginTransmission(MPU); Wire.write((uint8_t)0x1C); Wire.write((uint8_t)0); Wire.endTransmission();   // +-2 g
+  Wire.beginTransmission(MPU_ADDR); Wire.write((uint8_t)0x6B); Wire.write((uint8_t)0); Wire.endTransmission();   // wake up
+  Wire.beginTransmission(MPU_ADDR); Wire.write((uint8_t)0x1C); Wire.write((uint8_t)0); Wire.endTransmission();   // +-2 g
 }
 
 bool mpuRead(int16_t* a) {
-  Wire.beginTransmission(MPU); Wire.write((uint8_t)0x3B);
+  Wire.beginTransmission(MPU_ADDR); Wire.write((uint8_t)0x3B);
   if (Wire.endTransmission(false) != 0) return false;
-  if (Wire.requestFrom((int)MPU, (int)6) != 6) return false;
+  if (Wire.requestFrom((int)MPU_ADDR, (int)6) != 6) return false;
   for (int i = 0; i < 3; i++) { int hi = Wire.read(); int lo = Wire.read(); a[i] = (int16_t)((hi << 8) | lo); }
   return true;
 }
