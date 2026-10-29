@@ -16,7 +16,11 @@
 #include <GrowNetEEPROM.h>
 
 const uint8_t START_INPUTS = 2;                 // sensors used from the start
-const uint8_t PINS[] = {A0, A1, A2};            // all sensors that may be used
+#if defined(ARDUINO_ARCH_ESP32)
+const uint8_t PINS[] = {36, 39, 34};             // ESP32 analog pins (change to yours)
+#else
+const uint8_t PINS[] = {A0, A1, A2};             // all sensors that may be used
+#endif
 const uint8_t MAX_INPUTS = sizeof(PINS) / sizeof(PINS[0]);
 const char* NAMES[] = {"Situation A", "Situation B", "Situation C"};   // rename freely
 const uint8_t N_OUT = sizeof(NAMES) / sizeof(NAMES[0]);
