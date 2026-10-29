@@ -1,32 +1,53 @@
 # GrowNet
 
-**A self-growing neural network that learns on the microcontroller itself, even an Arduino Nano with 2 KB of RAM.**
+**Teach any microcontroller by example, and it learns on the chip itself, even a $3 Arduino Nano. No PC, no cloud.**
 
-No PC training. No cloud. No Python. You show it examples, it learns on the chip, and your data never leaves the device.
+<!-- [![CI](https://github.com/vihangaarunalu/GrowNet/actions/workflows/ci.yml/badge.svg)](https://github.com/vihangaarunalu/GrowNet/actions/workflows/ci.yml) -->
 
 <!-- Replace with a GIF of your board learning live: it's the most important thing in this README -->
 <!-- ![GrowNet learning live](extras/demo.gif) -->
 
 ```cpp
 GrowNet net;
-net.begin(2, 3, pool, sizeof(pool));   // 2 inputs, 3 situations
+net.begin(2, 3, pool, sizeof(pool));   // 2 sensors, 3 situations
 
 net.teach(sensors, NORMAL);            // learns right here, on the chip
 uint8_t what = net.predict(sensors);   // NORMAL, FAULT ... or GrowNet::UNKNOWN
 ```
 
-## Why it's different
+## What it is
 
-Most microcontroller AI is trained once on a PC and then frozen on the chip. GrowNet keeps learning after it's deployed.
+GrowNet is a small, open-source machine learning library for microcontrollers. It lets a device **learn from examples directly on the chip**, even an Arduino Nano with only 2 KB of RAM. There's no PC training, no Python and no cloud.
 
-- **Learns on the chip.** Backpropagation runs on the board, so you teach it on site, in seconds.
-- **Grows by itself.** It starts with 4 neurons and adds more only when it can't learn well enough, without forgetting what it knows.
-- **Fits any chip automatically.** The same code uses 153 parameters on a Nano and 12,000+ on an ESP32.
-- **Works with any sensor.** It learns each input's range itself, so you can feed it raw ADC counts, °C, lux, amps, whatever.
-- **Says "I don't know."** If an input looks unlike anything it was taught, it returns `GrowNet::UNKNOWN` instead of guessing.
-- **Portable brain.** Save to EEPROM, and load the same brain on a different chip. The format is identical everywhere.
-- **Fast answers.** Decisions happen on the device with no network round trip.
-- **One header, no dependencies.** Plain C++, so it also runs on a PC.
+## Why it's needed
+
+Most microcontroller AI is trained once on a PC and then frozen. It can't adapt to a new machine, a new room or a change over time without a developer retraining it. GrowNet keeps learning **where the data is**, so anyone can teach a device by example. It answers in milliseconds, works offline, and keeps your data on your own device.
+
+## What's new
+
+Compared with existing tools such as Edge Impulse, ST NanoEdge and TensorFlow Lite Micro, GrowNet combines in one small library:
+
+1. **On-device learning on the cheapest 8-bit chips**, not only on larger 32-bit boards
+2. **A network that sizes and grows itself** to each chip's memory, with no settings
+3. **Built-in "I don't know"**, so it doesn't confidently guess on unfamiliar input
+4. **Add sensors later without losing what it learned** (new in v0.2.0)
+
+## Capabilities
+
+| Capability | What it means |
+|---|---|
+| **Learns on the device** | Show it a situation and it trains itself with backpropagation, on the chip, in seconds |
+| **Recognizes situations** | From any sensors, with a confidence score |
+| **Says "I don't know"** | Returns `GrowNet::UNKNOWN` for input unlike anything it was taught |
+| **Grows by itself** | Starts with 4 neurons and adds more only when needed, without forgetting |
+| **Fits any board** | 153 parameters on a Nano, 12,000+ on an ESP32, from the same code |
+| **Any sensor, any units** | Learns each input's range itself: ADC counts, °C, lux, amps... |
+| **Add sensors later** | `addInput()` brings in a new sensor and keeps everything learned |
+| **Remembers** | Saves its brain (weights and memory of examples) to EEPROM |
+| **Portable brain** | A saved brain loads on a different board with identical answers |
+| **Keeps learning after loading** | Teach more at any time; no retraining from scratch |
+| **Fast, offline answers** | Decisions on the device, no network round trip |
+| **No dependencies** | One header, plain C++, no `malloc`; also runs on a PC |
 
 ## Quick start (no extra hardware)
 
@@ -41,9 +62,21 @@ You'll see it learn three situations, recognize new readings, and answer "I don'
 | Example | Hardware | What it shows |
 |---|---|---|
 | `HelloGrowNet` | None | Learning, testing and "I don't know" with simulated sensors |
-| `SerialTeach` | Any 2 analog sensors | Teach live situations from the Serial Monitor; saved to EEPROM |
+| `SerialTeach` | Any 2–3 analog sensors | Teach from the Serial Monitor, add a third sensor later, saved to EEPROM |
 | `ButtonTeach` | 2 sensors, 2 buttons, 3 LEDs | A teachable device with no computer at all |
 | `VibrationMonitor` | MPU6050 | Learn a machine's normal vibration and flag faults |
+
+## Adding a sensor later
+
+Reserve room when you start, then add the sensor whenever it's connected:
+
+```cpp
+net.begin(2, 3, pool, sizeof(pool), seed, 3);   // 2 sensors now, room for 3
+// ... teach and use it ...
+net.addInput();                                   // the third sensor is now part of the brain
+```
+
+The new sensor starts with zero influence, so all answers stay exactly the same. Over the next few `teach()` calls it learns how much the new sensor matters. Old examples, recorded before the sensor existed, assume the first value it reads. Each reserved input costs a little memory per neuron.
 
 ## How big can it grow?
 
@@ -62,29 +95,30 @@ Capacity for 2 inputs and 3 situations. The library picks the memory budget for 
 
 ## How it works
 
-1. **Memory plan:** `begin()` splits one fixed buffer into a workspace, a memory of recent examples, and as many neurons as fit. It never uses `malloc`.
+1. **Memory plan:** `begin()` splits one fixed buffer into a workspace, a memory of recent examples, and as many neurons as fit.
 2. **Network:** inputs → one hidden layer of tanh neurons → softmax over your situations.
 3. **Teaching:** each `teach()` stores the example, then trains with gradient descent until it reaches `targetAccuracy` (default 97%) or `maxEpochs`.
-4. **Growing:** if accuracy is still too low, it adds a neuron with zero output weights, so the new neuron can't disturb existing answers, then trains again.
-5. **Scaling:** when a new value falls outside an input's known range, the range widens. Stored examples and first-layer weights are remapped exactly, so nothing learned is lost.
-6. **"I don't know":** it measures how far a new input is from the nearest remembered example, compared with how far apart remembered examples usually are. Too far away, or too low confidence, gives `UNKNOWN`.
+4. **Growing:** if accuracy is still too low, it adds a neuron with zero output weights, so it can't disturb existing answers, then trains again.
+5. **Scaling:** when a value falls outside an input's known range, the range widens, and stored examples and first-layer weights are remapped exactly, so nothing learned is lost.
+6. **"I don't know":** it compares the distance to the nearest remembered example with how far apart remembered examples usually are. Too far, or too low confidence, gives `UNKNOWN`.
 
 ## API
 
 | Call | What it does |
 |---|---|
-| `begin(nIn, nOut, pool, bytes, seed)` | Set up inside your buffer; returns `false` if it doesn't fit |
+| `begin(nIn, nOut, pool, bytes, seed, maxInputs)` | Set up inside your buffer; returns `false` if it doesn't fit |
 | `teach(x, label)` | Learn that raw inputs `x` mean situation `label` |
 | `predict(x)` | Situation number, or `GrowNet::UNKNOWN` |
+| `addInput()` | Start using one more sensor, keeping what was learned |
 | `confidence()`, `probability(k)` | How sure the last prediction was |
 | `bestGuess()`, `isUnknown()`, `novelty()` | Details of the last prediction (`novelty() > 1` = unfamiliar) |
 | `improve(passes)` | Extra training, e.g. while the device is idle |
 | `accuracy()` | Accuracy on the remembered examples |
 | `reset()` | Forget everything |
 | `save(writeFn)`, `load(readFn)`, `saveSize()` | Store the brain anywhere through two byte callbacks |
-| `neurons()`, `params()`, `maxParams()`, `examples()` | Size information |
+| `inputs()`, `neurons()`, `params()`, `maxParams()`, `examples()` | Size information |
 
-Settings you can change: `learningRate`, `targetAccuracy`, `maxEpochs`, `maxGrowPerTeach`, `minConfidence`, `noveltyFactor`, `detectUnknown`.
+Settings: `learningRate`, `targetAccuracy`, `maxEpochs`, `maxGrowPerTeach`, `minConfidence`, `noveltyFactor`, `detectUnknown`.
 
 `GrowNetEEPROM.h` adds one-line `GrowNetEEPROM::save(net)` and `load(net)` for AVR, ESP32, ESP8266 and RP2040.
 
@@ -97,6 +131,7 @@ The PC test suite (`extras/test`) uses the exact Nano memory budget:
 - Grows from 4 to 6 neurons on a harder ring-shaped pattern (≈85% on new points)
 - Brain moves from a Nano-sized to an ESP32-sized setup with identical answers
 - Widening an input range keeps learned answers unchanged
+- Adding a sensor keeps old answers unchanged, then learns a new situation that needs it (90/90)
 - Whole brain fits in the Nano's 1 KB EEPROM
 
 Timing on real boards is not measured yet. Contributions with measurements are very welcome.
@@ -112,20 +147,20 @@ Timing on real boards is not measured yet. Contributions with measurements are v
 
 ## Honest limits
 
-- It recognizes **patterns in numbers**. It doesn't understand language or code, and it can't run an LLM.
+- It recognizes **patterns in numbers**. It's machine learning, not a chatbot: it doesn't understand language or code.
 - It only knows situations it was taught. "I don't know" makes that visible, but can't make it perfect.
 - On-chip training stays small on a Nano (about 150 parameters).
 - It remembers a limited number of recent examples (50 on a Nano). Older ones are replaced.
-- Raw audio or images need feature extraction first (see `VibrationMonitor` for an example).
+- Raw audio or images need feature extraction first (see `VibrationMonitor`).
 - **Never use it alone for safety-critical decisions** such as fire, gas or medical alarms.
 
 ## Roadmap
 
 - [ ] Timing and power benchmarks on real boards
-- [ ] Held-out validation and train-in-the-background mode
-- [ ] Sleeping expert groups: store many small networks in flash and wake one at a time
-- [ ] Load a PC-pretrained brain, then fine-tune on the chip
-- [ ] Larger brains in flash / LittleFS on ESP32
+- [ ] One-line `#include` that lets existing Arduino code learn
+- [ ] `AI_GUIDE.md` so AI coding tools write GrowNet-ready code
+- [ ] Robot "drive to teach" example
+- [ ] Sleeping neuron groups, using SD cards or extra memory when attached
 - [ ] Desktop and phone app for teaching without code
 
 ## Contributing

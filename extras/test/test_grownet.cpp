@@ -112,6 +112,35 @@ int main() {
   CHECK(g.neurons() > 4, "grows extra neurons for a harder task");
   CHECK(gok >= 320, "ring task >=80% on new points");
 
+  // Adding a sensor later keeps what was learned
+  static float p6[1000 / 4];
+  GrowNet a;
+  CHECK(a.begin(1, 3, p6, sizeof(p6), 11, 2), "begin() with room for one more sensor");
+  for (int i = 0; i < 8; i++) {
+    float lo[2] = {100 + noise(10), 0}, hi[2] = {800 + noise(10), 0};
+    a.teach(lo, 0); a.teach(hi, 1);
+  }
+  float q[2] = {120, 0}, q2[2] = {780, 0};
+  uint8_t b1 = a.predict(q), b2 = a.predict(q2);
+  CHECK(a.addInput(), "addInput() adds the second sensor");
+  CHECK(!a.addInput(), "addInput() refuses beyond the reserved room");
+  float q3[2] = {120, 55}, q4[2] = {780, 12};   // any value of the new sensor
+  CHECK(a.predict(q3) == b1 && a.predict(q4) == b2, "old answers unchanged right after adding a sensor");
+  // Situation 2 = same as situation 0 on sensor 1, but the new sensor is high
+  for (int i = 0; i < 8; i++) {
+    float n0[2] = {100 + noise(10), 10 + noise(2)}, n2[2] = {100 + noise(10), 90 + noise(2)};
+    float n1[2] = {800 + noise(10), 10 + noise(2)};
+    a.teach(n0, 0); a.teach(n2, 2); a.teach(n1, 1);
+  }
+  int aok = 0;
+  for (int t = 0; t < 90; t++) {
+    uint8_t c = t % 3; float x[2];
+    x[0] = (c == 1 ? 800 : 100) + noise(10); x[1] = (c == 2 ? 90 : 10) + noise(2);
+    a.predict(x); aok += a.bestGuess() == c;
+  }
+  printf("  info  after adding a sensor: %d/90 correct, %lu params in use\n", aok, (unsigned long)a.params());
+  CHECK(aok >= 85, "learns a new situation that needs the new sensor");
+
   printf(failures ? "\n%d FAILED\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

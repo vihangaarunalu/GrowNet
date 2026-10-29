@@ -5,6 +5,7 @@
 //    (2 KB RAM) up to ESP32, RP2040, Nano 33 BLE, SAMD, STM32 ...
 //  * Starts small and adds neurons by itself when it cannot learn well enough
 //  * Works with ANY sensor: it learns each input's range by itself
+//  * Add sensors later (addInput) without losing what it already learned
 //  * Says "I don't know" (GrowNet::UNKNOWN) for inputs unlike anything it was taught
 //  * Saves its whole brain (weights + memory) through two tiny callbacks, in a
 //    format that is identical on every chip, so a brain can move between MCUs
@@ -19,7 +20,7 @@
 #include <string.h>
 #include <math.h>
 
-#define GROWNET_VERSION "0.1.0"
+#define GROWNET_VERSION "0.2.0"
 
 // ---------- Memory budget per board (define GROWNET_POOL_BYTES yourself to override) ----------
 #ifndef GROWNET_POOL_BYTES
@@ -62,23 +63,26 @@ public:
   typedef uint8_t (*ReadFn)(uint32_t addr);
 
   // ---------------- Settings (change any time) ----------------
-  float    learningRate   = 0.1f;
-  float    targetAccuracy = 0.97f;    // train until this accuracy on remembered examples...
-  uint16_t maxEpochs      = GROWNET_DEFAULT_EPOCHS;  // ...or until this many passes
+  float    learningRate    = 0.1f;
+  float    targetAccuracy  = 0.97f;   // train until this accuracy on remembered examples...
+  uint16_t maxEpochs       = GROWNET_DEFAULT_EPOCHS;  // ...or until this many passes
   uint8_t  maxGrowPerTeach = 2;       // max neurons added per teach() call
-  float    minConfidence  = 0.6f;     // below this, predict() answers UNKNOWN
-  float    noveltyFactor  = 1.5f;     // larger = says "unknown" less often
-  bool     detectUnknown  = true;     // set false to always return the best class
+  float    minConfidence   = 0.6f;    // below this, predict() answers UNKNOWN
+  float    noveltyFactor   = 1.5f;    // larger = says "unknown" less often
+  bool     detectUnknown   = true;    // set false to always return the best class
 
-  // pool: a buffer you provide (declare it as a float array for alignment).
-  // nIn  : number of inputs (raw values, any units; GrowNet scales them itself)
-  // nOut : number of situations / classes (at least 2)
-  bool begin(uint8_t nIn, uint8_t nOut, void* pool, uint32_t poolBytes, uint32_t seed = 12345) {
+  // pool      : a buffer you provide (declare it as a float array for alignment)
+  // nIn       : number of inputs used now (raw values, any units)
+  // nOut      : number of situations / classes (at least 2)
+  // maxInputs : room for sensors you may add later with addInput() (0 = none)
+  bool begin(uint8_t nIn, uint8_t nOut, void* pool, uint32_t poolBytes,
+             uint32_t seed = 12345, uint8_t maxInputs = 0) {
+    uint8_t cap = maxInputs > nIn ? maxInputs : nIn;
     if (nIn == 0 || nOut < 2 || nOut == UNKNOWN || pool == 0) return false;
-    _nIn = nIn; _nOut = nOut; _stride = (uint16_t)nIn + 1 + nOut;
+    _nIn = cap; _nUsed = nIn; _nOut = nOut; _stride = (uint16_t)cap + 1 + nOut;
 
-    const uint32_t fixedBytes = ((uint32_t)2 * nOut + 3u * nIn) * 4;  // outB, prob, xt, lo, hi
-    const uint32_t exBytes    = (uint32_t)nIn * 2 + 1;               // one remembered example
+    const uint32_t fixedBytes = ((uint32_t)2 * nOut + 3u * cap) * 4;  // outB, prob, xt, lo, hi
+    const uint32_t exBytes    = (uint32_t)cap * 2 + 1;               // one remembered example
     const uint32_t perNeuron  = ((uint32_t)_stride + 1) * 4;          // weights + activation
     if (poolBytes <= fixedBytes + 4 * exBytes) return false;
 
@@ -100,13 +104,13 @@ public:
     float* f = (float*)pool;
     _outB = f; f += nOut;
     _prob = f; f += nOut;
-    _xt   = f; f += nIn;
-    _lo   = f; f += nIn;
-    _hi   = f; f += nIn;
+    _xt   = f; f += cap;
+    _lo   = f; f += cap;
+    _hi   = f; f += cap;
     _act  = f; f += _maxH;
     _w    = f; f += (uint32_t)_maxH * _stride;
     _bx   = (int16_t*)f;
-    _by   = (uint8_t*)(_bx + (uint32_t)_slots * nIn);
+    _by   = (uint8_t*)(_bx + (uint32_t)_slots * cap);
 
     _rng = seed ? seed : 12345;
     reset();
@@ -114,18 +118,33 @@ public:
   }
 
   // Forget everything: small fresh brain, empty memory, unknown input ranges.
+  // Keeps the number of inputs currently in use.
   void reset() {
     _H = _maxH < 4 ? _maxH : 4;
-    _count = 0; _head = 0; _ranged = false; _thr = -1;
-    for (uint8_t i = 0; i < _nIn; i++) { _lo[i] = 0; _hi[i] = 0; }
+    _count = 0; _head = 0; _thr = -1;
+    for (uint8_t i = 0; i < _nIn; i++) { _lo[i] = 1; _hi[i] = 0; }   // lo > hi = range not known yet
     for (uint8_t k = 0; k < _nOut; k++) { _outB[k] = 0; _prob[k] = 1.0f / _nOut; }
+    for (uint16_t j = 0; j < _maxH; j++) clearNeuron(j);
     for (uint16_t j = 0; j < _H; j++) initNeuron(j);
     _best = 0; _unknown = true; _dist = 0;
+  }
+
+  // Start using one more input (a sensor added later). Everything learned so
+  // far is kept: the new input starts with zero influence and is learned from
+  // the next teach() calls. Returns false if no room was reserved in begin().
+  bool addInput() {
+    if (_nUsed >= _nIn) return false;
+    uint8_t i = _nUsed++;
+    _lo[i] = 1; _hi[i] = 0;
+    for (uint16_t j = 0; j < _maxH; j++) _w[(uint32_t)j * _stride + i] = 0;
+    for (uint8_t k = 0; k < _count; k++) _bx[(uint32_t)k * _nIn + i] = 0;
+    return true;
   }
 
   // ---------------- Using it ----------------
 
   // Returns the situation (0 .. nOut-1) for these raw inputs, or GrowNet::UNKNOWN.
+  // `raw` must hold inputs() values.
   uint8_t predict(const float* raw) {
     if (_count == 0) { _unknown = true; _best = 0; return UNKNOWN; }
     normalize(raw, _xt);
@@ -179,18 +198,19 @@ public:
   }
 
   // ---------------- Details of the last predict() ----------------
-  float   confidence() const     { return _prob[_best]; }        // 0..1
+  float   confidence() const          { return _prob[_best]; }   // 0..1
   float   probability(uint8_t k) const { return k < _nOut ? _prob[k] : 0; }
-  uint8_t bestGuess() const      { return _best; }               // even when UNKNOWN
-  bool    isUnknown() const      { return _unknown; }
-  float   novelty() const        { return _thr > 0 ? _dist / _thr : 0; }  // >1 = unfamiliar
+  uint8_t bestGuess() const           { return _best; }          // even when UNKNOWN
+  bool    isUnknown() const           { return _unknown; }
+  float   novelty() const             { return _thr > 0 ? _dist / _thr : 0; }  // >1 = unfamiliar
 
   // ---------------- Size info ----------------
-  uint8_t  inputs() const       { return _nIn; }
+  uint8_t  inputs() const       { return _nUsed; }
+  uint8_t  maxInputs() const    { return _nIn; }
   uint8_t  outputs() const      { return _nOut; }
   uint16_t neurons() const      { return _H; }
   uint16_t maxNeurons() const   { return _maxH; }
-  uint32_t params() const       { return (uint32_t)_H * _stride + _nOut; }
+  uint32_t params() const       { return (uint32_t)_H * (_nUsed + 1u + _nOut) + _nOut; }
   uint32_t maxParams() const    { return (uint32_t)_maxH * _stride + _nOut; }
   uint8_t  examples() const     { return _count; }
   uint8_t  memorySlots() const  { return _slots; }
@@ -204,9 +224,9 @@ public:
   bool save(WriteFn w, uint32_t base = 0) const {
     if (!w) return false;
     uint32_t a = base;
-    w(a++, 'G'); w(a++, 'N'); w(a++, 2); w(a++, _nIn); w(a++, _nOut);
+    w(a++, 'G'); w(a++, 'N'); w(a++, FORMAT); w(a++, _nIn); w(a++, _nOut);
     w(a++, (uint8_t)(_H & 0xFF)); w(a++, (uint8_t)(_H >> 8));
-    w(a++, _count); w(a++, _head); w(a++, _ranged ? 1 : 0);
+    w(a++, _count); w(a++, _head); w(a++, _nUsed);
     a = putFloats(w, a, _outB, _nOut);
     a = putFloats(w, a, _lo, _nIn);
     a = putFloats(w, a, _hi, _nIn);
@@ -225,16 +245,17 @@ public:
   bool load(ReadFn r, uint32_t base = 0) {
     if (!r) return false;
     uint32_t a = base;
-    if (r(a++) != 'G' || r(a++) != 'N' || r(a++) != 2) return false;
+    if (r(a++) != 'G' || r(a++) != 'N' || r(a++) != FORMAT) return false;
     if (r(a++) != _nIn || r(a++) != _nOut) return false;
     uint16_t h = r(a++); h |= (uint16_t)r(a++) << 8;
-    uint8_t cnt = r(a++), head = r(a++), ranged = r(a++);
-    if (h < 1 || h > _maxH) return false;
+    uint8_t cnt = r(a++), head = r(a++), used = r(a++);
+    if (h < 1 || h > _maxH || used < 1 || used > _nIn) return false;
     a = getFloats(r, a, _outB, _nOut);
     a = getFloats(r, a, _lo, _nIn);
     a = getFloats(r, a, _hi, _nIn);
     a = getFloats(r, a, &_thr, 1);
     a = getFloats(r, a, _w, (uint32_t)h * _stride);
+    for (uint16_t j = h; j < _maxH; j++) clearNeuron(j);
     uint8_t keep = cnt <= _slots ? cnt : _slots;
     uint32_t exStart = a;
     for (uint32_t i = 0; i < (uint32_t)keep * _nIn; i++) {
@@ -243,19 +264,20 @@ public:
     }
     a = exStart + (uint32_t)cnt * _nIn * 2;
     for (uint8_t k = 0; k < keep; k++) _by[k] = r(a + k);
-    _H = h; _count = keep; _ranged = ranged != 0;
+    _H = h; _count = keep; _nUsed = used;
     _head = (keep == cnt) ? (uint8_t)(head % _slots) : (uint8_t)(keep % _slots);
     if (keep != cnt) updateNovelty();
     return true;
   }
 
 private:
+  static const uint8_t FORMAT = 3;
   static constexpr float PACK = 16000.0f;   // normalized value -> int16
 
-  uint8_t  _nIn = 0, _nOut = 0, _slots = 0, _count = 0, _head = 0, _best = 0;
+  uint8_t  _nIn = 0, _nUsed = 0, _nOut = 0, _slots = 0, _count = 0, _head = 0, _best = 0;
   uint16_t _stride = 0, _H = 0, _maxH = 0;
   uint32_t _rng = 1;
-  bool     _ranged = false, _unknown = true;
+  bool     _unknown = true;
   float    _thr = -1, _dist = 0;
   float   *_outB = 0, *_prob = 0, *_xt = 0, *_lo = 0, *_hi = 0, *_act = 0, *_w = 0;
   int16_t *_bx = 0;
@@ -287,49 +309,47 @@ private:
     for (uint8_t i = 0; i < _nIn; i++) out[i] = s[i] / PACK;
   }
 
-  // New neuron: random input weights, zero output weights -> adding it
-  // never changes what the brain already answers.
+  void clearNeuron(uint16_t j) {
+    float* n = _w + (uint32_t)j * _stride;
+    for (uint16_t q = 0; q < _stride; q++) n[q] = 0;
+  }
+
+  // New neuron: random weights for inputs in use, zero for inputs not yet
+  // added and zero output weights -> adding it never changes current answers.
   void initNeuron(uint16_t j) {
     float* n = _w + (uint32_t)j * _stride;
-    for (uint8_t i = 0; i < _nIn; i++) n[i] = rnd() * 1.5f;
+    for (uint8_t i = 0; i < _nIn; i++) n[i] = i < _nUsed ? rnd() * 1.5f : 0.0f;
     n[_nIn] = rnd() * 0.5f;
     for (uint8_t k = 0; k < _nOut; k++) n[_nIn + 1 + k] = 0;
   }
 
   // Raw value -> about -1..1 using the learned range of each input.
+  // Inputs not in use (or with no range yet) give 0.
   void normalize(const float* raw, float* out) const {
     for (uint8_t i = 0; i < _nIn; i++) {
       float span = _hi[i] - _lo[i];
-      out[i] = span > 0 ? 2.0f * (raw[i] - _lo[i]) / span - 1.0f : 0.0f;
+      out[i] = (i < _nUsed && span > 0) ? 2.0f * (raw[i] - _lo[i]) / span - 1.0f : 0.0f;
     }
   }
 
   // Widen input ranges when a new example falls outside them. Stored examples
   // and first-layer weights are re-mapped exactly, so nothing learned is lost.
   void updateRanges(const float* raw) {
-    if (!_ranged) {
-      for (uint8_t i = 0; i < _nIn; i++) { _lo[i] = raw[i]; _hi[i] = raw[i]; }
-      _ranged = true;
-    }
-    for (uint8_t i = 0; i < _nIn; i++) {
+    for (uint8_t i = 0; i < _nUsed; i++) {
       float v = raw[i];
-      if (v >= _lo[i] && v <= _hi[i] && _hi[i] > _lo[i]) continue;
-      if (v >= _lo[i] && v <= _hi[i]) {
-        // still a single point: only widen when a different value arrives
-        if (v == _lo[i]) continue;
-      }
+      if (_lo[i] > _hi[i]) { _lo[i] = v; _hi[i] = v; continue; }   // first value seen
+      if (v >= _lo[i] && v <= _hi[i]) continue;                     // inside known range
       float nl = v < _lo[i] ? v : _lo[i];
       float nh = v > _hi[i] ? v : _hi[i];
       float pad = 0.05f * (nh - nl);
-      nl -= pad; nh += pad;
-      remapInput(i, nl, nh);
+      remapInput(i, nl - pad, nh + pad);
     }
   }
 
   void remapInput(uint8_t i, float nl, float nh) {
     float span = _hi[i] - _lo[i], nspan = nh - nl;
     if (span > 0) {
-      // x_old = a * x_new + b
+      // x_old = a * x_new + b  ->  fold into the weights so outputs stay identical
       float a = nspan / span;
       float b = (2.0f * (nl - _lo[i]) + nspan) / span - 1.0f;
       for (uint16_t j = 0; j < _maxH; j++) {
@@ -339,12 +359,11 @@ private:
       }
       for (uint8_t k = 0; k < _count; k++) {
         int16_t* s = _bx + (uint32_t)k * _nIn + i;
-        float xo = *s / PACK;
-        float v = _lo[i] + (xo + 1.0f) * 0.5f * span;
+        float v = _lo[i] + (*s / PACK + 1.0f) * 0.5f * span;
         *s = pack(2.0f * (v - nl) / nspan - 1.0f);
       }
     } else {
-      // every stored value of this input was exactly _lo[i]
+      // range was a single value: stored examples take that value
       int16_t p = pack(2.0f * (_lo[i] - nl) / nspan - 1.0f);
       for (uint8_t k = 0; k < _count; k++) _bx[(uint32_t)k * _nIn + i] = p;
     }
@@ -362,7 +381,7 @@ private:
     for (uint16_t j = 0; j < _H; j++) {
       const float* n = _w + (uint32_t)j * _stride;
       float a = n[_nIn];
-      for (uint8_t i = 0; i < _nIn; i++) a += n[i] * x[i];
+      for (uint8_t i = 0; i < _nUsed; i++) a += n[i] * x[i];
       a = act(a);
       _act[j] = a;
       const float* wo = n + _nIn + 1;
@@ -390,7 +409,7 @@ private:
       }
       float dh = back * (1.0f - a * a);
       n[_nIn] -= lr * dh;
-      for (uint8_t i = 0; i < _nIn; i++) n[i] -= lr * dh * x[i];
+      for (uint8_t i = 0; i < _nUsed; i++) n[i] -= lr * dh * x[i];
     }
     for (uint8_t k = 0; k < _nOut; k++) _outB[k] -= lr * _prob[k];
   }
@@ -418,21 +437,19 @@ private:
       if (k == skip) continue;
       const int16_t* s = _bx + (uint32_t)k * _nIn;
       float d = 0;
-      for (uint8_t i = 0; i < _nIn; i++) { float t = x[i] - s[i] / PACK; d += t * t; }
+      for (uint8_t i = 0; i < _nUsed; i++) { float t = x[i] - s[i] / PACK; d += t * t; }
       if (d < best) best = d;
     }
-    return (float)sqrt(best / _nIn);
+    return (float)sqrt(best / _nUsed);
   }
 
   // Unknown threshold = how far apart remembered examples usually are.
   void updateNovelty() {
     if (_count < 3) { _thr = -1; return; }
-    float tmp[8];
-    float* x = _nIn <= 8 ? tmp : _xt;  // _xt is free here
     float sum = 0, sum2 = 0;
     for (uint8_t k = 0; k < _count; k++) {
-      unpack(k, x);
-      float d = nearestDistance(x, k);
+      unpack(k, _xt);
+      float d = nearestDistance(_xt, k);
       sum += d; sum2 += d * d;
     }
     float mean = sum / _count;

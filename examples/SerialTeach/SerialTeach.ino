@@ -1,10 +1,13 @@
-// SerialTeach - teach GrowNet with ANY analog sensors, from the Serial Monitor.
+// SerialTeach - teach GrowNet with ANY analog sensors, from the Serial Monitor,
+// and add a sensor later without losing what it learned.
 //
 // Wiring: any analog sensors on A0 and A1 (light, temperature, potentiometer,
-//         soil moisture, gas, current...). GrowNet learns their ranges itself.
+//         soil moisture, gas, current...). Optionally a third one on A2 later.
+//         GrowNet learns their ranges itself.
 //
 // Serial Monitor at 115200 baud, then type:
 //   0, 1, 2  -> "what is happening right now is situation 0 / 1 / 2"
+//   a        -> add the next sensor (A2) - everything learned is kept
 //   s        -> status        r -> forget everything
 //
 // The brain is saved to EEPROM, so it remembers after power-off.
@@ -12,8 +15,9 @@
 #include <GrowNet.h>
 #include <GrowNetEEPROM.h>
 
-const uint8_t N_IN = 2;                         // number of inputs
-const uint8_t PINS[N_IN] = {A0, A1};            // where they are connected
+const uint8_t START_INPUTS = 2;                 // sensors used from the start
+const uint8_t PINS[] = {A0, A1, A2};            // all sensors that may be used
+const uint8_t MAX_INPUTS = sizeof(PINS) / sizeof(PINS[0]);
 const char* NAMES[] = {"Situation A", "Situation B", "Situation C"};   // rename freely
 const uint8_t N_OUT = sizeof(NAMES) / sizeof(NAMES[0]);
 
@@ -21,12 +25,13 @@ float pool[GROWNET_POOL_BYTES / sizeof(float)];
 GrowNet net;
 
 void readInputs(float* x) {
-  for (uint8_t i = 0; i < N_IN; i++) x[i] = analogRead(PINS[i]);
+  for (uint8_t i = 0; i < net.inputs(); i++) x[i] = analogRead(PINS[i]);
 }
 
 void printStatus() {
-  Serial.print(F("Neurons ")); Serial.print(net.neurons()); Serial.print('/'); Serial.print(net.maxNeurons());
-  Serial.print(F(" | params ")); Serial.print(net.params()); Serial.print('/'); Serial.print(net.maxParams());
+  Serial.print(F("Sensors ")); Serial.print(net.inputs()); Serial.print('/'); Serial.print(net.maxInputs());
+  Serial.print(F(" | neurons ")); Serial.print(net.neurons()); Serial.print('/'); Serial.print(net.maxNeurons());
+  Serial.print(F(" | params ")); Serial.print(net.params());
   Serial.print(F(" | examples ")); Serial.print(net.examples());
   Serial.print(F(" | accuracy ")); Serial.print(net.accuracy() * 100, 0); Serial.println('%');
 }
@@ -35,21 +40,29 @@ void setup() {
   Serial.begin(115200);
   while (!Serial && millis() < 3000) {}
   GrowNetEEPROM::begin();
-  if (!net.begin(N_IN, N_OUT, pool, sizeof(pool), micros())) { Serial.println(F("Not enough memory")); while (true) {} }
+  if (!net.begin(START_INPUTS, N_OUT, pool, sizeof(pool), micros(), MAX_INPUTS)) {
+    Serial.println(F("Not enough memory")); while (true) {}
+  }
   Serial.println(GrowNetEEPROM::load(net) ? F("Brain loaded from memory.") : F("New brain."));
   printStatus();
-  Serial.println(F("Type a number to teach the current situation, s = status, r = reset."));
+  Serial.println(F("Type 0/1/2 to teach, a = add sensor, s = status, r = reset."));
 }
 
 void loop() {
   if (Serial.available()) {
     char c = Serial.read();
     if (c >= '0' && c < '0' + N_OUT) {
-      float x[N_IN]; readInputs(x);
+      float x[MAX_INPUTS]; readInputs(x);
       uint8_t label = c - '0';
       Serial.print(F("Learning: ")); Serial.println(NAMES[label]);
       net.teach(x, label);
       if (!GrowNetEEPROM::save(net)) Serial.println(F("(not saved: no EEPROM or brain too big)"));
+      printStatus();
+    } else if (c == 'a') {
+      if (net.addInput()) {
+        GrowNetEEPROM::save(net);
+        Serial.println(F("Sensor added. Old knowledge kept - teach a few examples so it learns the new sensor."));
+      } else Serial.println(F("No room for more sensors."));
       printStatus();
     } else if (c == 's') {
       printStatus();
@@ -62,9 +75,9 @@ void loop() {
   static unsigned long last = 0;
   if (millis() - last >= 1000) {
     last = millis();
-    float x[N_IN]; readInputs(x);
+    float x[MAX_INPUTS]; readInputs(x);
     uint8_t r = net.predict(x);
-    for (uint8_t i = 0; i < N_IN; i++) { Serial.print(x[i], 0); Serial.print(' '); }
+    for (uint8_t i = 0; i < net.inputs(); i++) { Serial.print(x[i], 0); Serial.print(' '); }
     Serial.print(F("-> "));
     if (net.examples() == 0) Serial.println(F("teach me first"));
     else if (r == GrowNet::UNKNOWN) Serial.println(F("I don't know this situation"));
