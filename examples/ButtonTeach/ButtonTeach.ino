@@ -21,7 +21,13 @@ const uint8_t PIN_OK = 5, PIN_PROBLEM = 6, PIN_UNSURE = 7;      // green, red, y
 float pool[GROWNET_POOL_BYTES / sizeof(float)];
 GrowNet net;
 
-void readInputs(float* x) { x[0] = analogRead(A0); x[1] = analogRead(A1); }
+#if defined(ARDUINO_ARCH_ESP32)
+const uint8_t SENSOR1 = 36, SENSOR2 = 39;        // ESP32 analog pins (change to yours)
+#else
+const uint8_t SENSOR1 = A0, SENSOR2 = A1;
+#endif
+
+void readInputs(float* x) { x[0] = analogRead(SENSOR1); x[1] = analogRead(SENSOR2); }
 
 void leds(bool g, bool r, bool y) {
   digitalWrite(PIN_OK, g ? HIGH : LOW); digitalWrite(PIN_PROBLEM, r ? HIGH : LOW); digitalWrite(PIN_UNSURE, y ? HIGH : LOW);
@@ -42,7 +48,7 @@ void setup() {
   pinMode(BTN_PROBLEM, INPUT_PULLUP);
   pinMode(PIN_OK, OUTPUT); pinMode(PIN_PROBLEM, OUTPUT); pinMode(PIN_UNSURE, OUTPUT);
   GrowNetEEPROM::begin();
-  net.begin(2, 2, pool, sizeof(pool), analogRead(A0) + micros());
+  net.begin(2, 2, pool, sizeof(pool), analogRead(SENSOR1) + micros());
 
   bool wipe = digitalRead(BTN_NORMAL) == LOW && digitalRead(BTN_PROBLEM) == LOW;
   if (wipe) {
