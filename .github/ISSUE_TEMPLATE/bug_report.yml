@@ -1,0 +1,32 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      placeholder: e.g. Arduino Nano (ATmega328P), ESP32 DevKit
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: GrowNet version
+      placeholder: e.g. 0.4.0
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Sketch (smallest part that shows the problem)
+      render: cpp
+  - type: textarea
+    id: output
+    attributes:
+      label: Serial Monitor output or compiler error
+      render: text

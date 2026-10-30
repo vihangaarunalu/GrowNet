@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1a14"/>
+      <stop offset="1" stop-color="#0f2a20"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#1d3d30" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#grid)" opacity="0.55"/>
+
+  <!-- chip -->
+  <g transform="translate(760 140)">
+    <g stroke="#3fae7f" stroke-width="6" stroke-linecap="round">
+      <path d="M60 0V-34M120 0V-34M180 0V-34M240 0V-34M300 0V-34"/>
+      <path d="M60 360V394M120 360V394M180 360V394M240 360V394M300 360V394"/>
+      <path d="M0 60H-34M0 120H-34M0 180H-34M0 240H-34M0 300H-34"/>
+      <path d="M360 60H394M360 120H394M360 180H394M360 240H394M360 300H394"/>
+    </g>
+    <rect width="360" height="360" rx="28" fill="#12352a" stroke="#3fae7f" stroke-width="4"/>
+    <!-- network growing inside the chip -->
+    <g stroke="#6fdcaa" stroke-width="2.5" opacity="0.9">
+      <path d="M70 120L180 80M70 120L180 150M70 120L180 220M70 240L180 80M70 240L180 150M70 240L180 220M70 240L180 290"/>
+      <path d="M180 80L290 150M180 150L290 150M180 220L290 150M180 80L290 230M180 150L290 230M180 220L290 230M180 290L290 230"/>
+    </g>
+    <g stroke="#f4c95d" stroke-width="2.5" stroke-dasharray="6 6">
+      <path d="M70 120L180 290M180 290L290 150"/>
+    </g>
+    <g fill="#0f2a20" stroke="#6fdcaa" stroke-width="4">
+      <circle cx="70" cy="120" r="18"/><circle cx="70" cy="240" r="18"/>
+      <circle cx="180" cy="80" r="18"/><circle cx="180" cy="150" r="18"/><circle cx="180" cy="220" r="18"/>
+      <circle cx="290" cy="150" r="18"/><circle cx="290" cy="230" r="18"/>
+    </g>
+    <circle cx="180" cy="290" r="18" fill="#f4c95d" stroke="#f4c95d" stroke-width="4"/>
+    <text x="206" y="335" fill="#f4c95d" font-family="Helvetica, Arial, sans-serif" font-size="20" font-weight="700">new neuron</text>
+  </g>
+
+  <!-- text -->
+  <text x="88" y="250" fill="#ffffff" font-family="Helvetica, Arial, sans-serif" font-size="112" font-weight="800" letter-spacing="-2">GrowNet</text>
+  <text x="92" y="318" fill="#b9e9d2" font-family="Helvetica, Arial, sans-serif" font-size="36" font-weight="500">AI that learns on the chip itself</text>
+  <text x="92" y="366" fill="#b9e9d2" font-family="Helvetica, Arial, sans-serif" font-size="36" font-weight="500">even a $3 Arduino Nano</text>
+
+  <g font-family="Helvetica, Arial, sans-serif" font-size="24" font-weight="700">
+    <rect x="92" y="420" width="190" height="52" rx="26" fill="#1f5c45"/>
+    <text x="187" y="454" fill="#ffffff" text-anchor="middle">No PC</text>
+    <rect x="298" y="420" width="190" height="52" rx="26" fill="#1f5c45"/>
+    <text x="393" y="454" fill="#ffffff" text-anchor="middle">No cloud</text>
+    <rect x="504" y="420" width="190" height="52" rx="26" fill="#1f5c45"/>
+    <text x="599" y="454" fill="#ffffff" text-anchor="middle">Open source</text>
+  </g>
+  <text x="92" y="550" fill="#7fbfa3" font-family="Menlo, Consolas, monospace" font-size="26">#include &lt;GrowNetAuto.h&gt;   →   #train</text>
+</svg>

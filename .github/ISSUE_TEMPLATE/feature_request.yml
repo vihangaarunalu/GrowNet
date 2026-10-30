@@ -1,0 +1,14 @@
+name: Feature or example request
+description: Suggest a feature, sensor or example
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like GrowNet to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What project would this help with?
