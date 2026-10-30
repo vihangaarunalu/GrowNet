@@ -1,0 +1,28 @@
+name: Board test results
+description: Share how GrowNet runs on your board (very welcome!)
+labels: [board-report]
+body:
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      placeholder: e.g. Arduino Nano clone (CH340), ESP32-S3
+    validations:
+      required: true
+  - type: input
+    id: example
+    attributes:
+      label: Example used
+      placeholder: e.g. HelloGrowNet
+  - type: input
+    id: learn
+    attributes:
+      label: Learning time (from "Learned in ... ms")
+  - type: input
+    id: predict
+    attributes:
+      label: Prediction time (µs)
+  - type: textarea
+    id: notes
+    attributes:
+      label: Output, photos or notes

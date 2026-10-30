@@ -1,10 +1,33 @@
+<p align="center">
+  <img src="extras/banner.png" alt="GrowNet: AI that learns on the chip itself, even a $3 Arduino Nano" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/vihangaarunalu/GrowNet/actions/workflows/ci.yml"><img src="https://github.com/vihangaarunalu/GrowNet/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/vihangaarunalu/GrowNet/releases"><img src="https://img.shields.io/github/v/release/vihangaarunalu/GrowNet?color=2e8b57" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2e8b57" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/boards-Nano%20%7C%20Uno%20%7C%20Mega%20%7C%20ESP32%20%7C%20Pico%20%7C%20Nano%2033%20BLE-2e8b57" alt="Boards">
+  <img src="https://img.shields.io/badge/dependencies-none-2e8b57" alt="No dependencies">
+</p>
+
+<p align="center">
+  <b><a href="#quick-start-no-extra-hardware">Quick start</a></b> ·
+  <b><a href="#new-one-line-then-just-talk-to-it">One-line mode</a></b> ·
+  <b><a href="#examples">Examples</a></b> ·
+  <b><a href="#api">API</a></b> ·
+  <b><a href="#honest-limits">Limits</a></b> ·
+  <b><a href="CONTRIBUTING.md">Contribute</a></b>
+</p>
+
 # GrowNet
 
 **Teach any microcontroller by example, and it learns on the chip itself, even a $3 Arduino Nano. No PC, no cloud.**
 
-[![CI](https://github.com/vihangaarunalu/GrowNet/actions/workflows/ci.yml/badge.svg)](https://github.com/vihangaarunalu/GrowNet/actions/workflows/ci.yml)
+| 🧠 Learns on the chip | 🔍 Explains your sketch | 🛡️ Honest |
+|---|---|---|
+| Show it examples and it trains itself with backpropagation, right on the board. Grows its own neurons to fit the chip. | Add one `#include` and it reports links, likely drivers, stuck sensors and unusual events. Type `#train` and it learns normal behaviour. | Says **"I don't know"** instead of guessing, and lists exactly what it can't do. |
 
-<!-- Replace with a GIF of your board learning live: it's the most important thing in this README -->
+<!-- Add a GIF of your board learning live here: it's the most important thing in this README -->
 <!-- ![GrowNet learning live](extras/demo.gif) -->
 
 ```cpp
@@ -259,6 +282,13 @@ g++ -std=c++11 -Wall -Wextra -O2 -Isrc extras/test/test_grownet.cpp -o test_grow
 g++ -std=c++11 -Wall -Wextra -O2 -Isrc -D__AVR_ATmega328P__ extras/test/test_insight.cpp -o test_insight && ./test_insight
 ```
 
+## Support the project
+
+- ⭐ **Star the repo** if GrowNet is useful or interesting to you. It helps others find it.
+- 🧪 **Tried it on a board?** [Share your results](https://github.com/vihangaarunalu/GrowNet/issues/new?template=board_report.yml), especially timings on real hardware.
+- 🐛 **Found a problem?** [Open an issue](https://github.com/vihangaarunalu/GrowNet/issues/new/choose).
+- 🛠️ **Built something with it?** Open an issue with a photo or video and it can be featured here.
+
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Created by **Vihanga Arunalu Karunathilaka**.
