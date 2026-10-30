@@ -1,0 +1,8 @@
+build/
+*.o
+*.bin
+*.hex
+*.elf
+test_grownet
+.vscode/
+.DS_Store

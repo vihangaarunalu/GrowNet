@@ -11,6 +11,8 @@ jobs:
         run: |
           g++ -std=c++11 -Wall -Wextra -Werror -O2 -Isrc extras/test/test_grownet.cpp -o test_grownet
           ./test_grownet
+          g++ -std=c++11 -Wall -Wextra -Werror -O2 -Isrc -D__AVR_ATmega328P__ extras/test/test_insight.cpp -o test_insight
+          ./test_insight
 
   compile-examples:
     runs-on: ubuntu-latest
