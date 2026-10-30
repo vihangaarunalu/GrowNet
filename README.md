@@ -2,7 +2,7 @@
 
 **Teach any microcontroller by example, and it learns on the chip itself, even a $3 Arduino Nano. No PC, no cloud.**
 
-<!-- [![CI](https://github.com/vihangaarunalu/GrowNet/actions/workflows/ci.yml/badge.svg)](https://github.com/vihangaarunalu/GrowNet/actions/workflows/ci.yml) -->
+[![CI](https://github.com/vihangaarunalu/GrowNet/actions/workflows/ci.yml/badge.svg)](https://github.com/vihangaarunalu/GrowNet/actions/workflows/ci.yml)
 
 <!-- Replace with a GIF of your board learning live: it's the most important thing in this README -->
 <!-- ![GrowNet learning live](extras/demo.gif) -->
@@ -14,6 +14,36 @@ net.begin(2, 3, pool, sizeof(pool));   // 2 sensors, 3 situations
 net.teach(sensors, NORMAL);            // learns right here, on the chip
 uint8_t what = net.predict(sensors);   // NORMAL, FAULT ... or GrowNet::UNKNOWN
 ```
+
+## New: one line, then just talk to it
+
+Add `#include <GrowNetAuto.h>` to your own Arduino code and change nothing else. Open the Serial Monitor (115200 baud, line ending "Newline"):
+
+```
+[GrowNet] Ready. Watching your sketch. Type #train to learn how it normally behaves.
+#train
+[GrowNet] Training... using 2 inputs and 1 on/off outputs. Keep the system running normally.
+[GrowNet] Training... 10 s, 31 examples, 4 neurons, accuracy on new readings 88%
+[GrowNet] Training done in 40 s: 52 examples, accuracy on new readings 100%
+[GrowNet] Send the trained data as CSV? Type #yes or #no
+#yes
+--- GrowNet CSV begin ---  ...copy straight into Excel or Google Sheets...  --- GrowNet CSV end ---
+[GrowNet] Show links between signals and likely drivers? Type #yes or #no
+#yes
+[GrowNet] LED is ON mostly when light is high (avg 691 when ON, 306 when OFF) - likely driver
+[GrowNet] Trained. Watching for unusual situations and unexpected outputs.
+...
+[GrowNet] Unexpected: LED is OFF, but in this situation it was usually ON. Type #ok if this is normal now.
+[GrowNet] Unusual situation, not seen during training: light=1020, knob=315. Type #ok if this is normal.
+```
+
+- **Learns how your system normally behaves**: which on/off outputs go with which inputs.
+- **Then watches for problems**: situations it never saw, and outputs that act differently from what it learned.
+- **Remembers**: the model is saved (EEPROM) and reused after a restart. New sensors are added later without losing what it learned.
+- **Plays nicely with your sketch**: GrowNet only reads Serial lines that start with `#`.
+- **Scales with the board**: Arduino Nano is the baseline; ESP32, RP2040 and Nano 33 BLE watch more signals and train bigger models.
+
+Commands: `#train` `#yes` `#no` `#csv` `#links` `#ok` `#status` `#reset` `#help`. See the `InsightAuto` example.
 
 ## What it is
 
@@ -30,7 +60,9 @@ Compared with existing tools such as Edge Impulse, ST NanoEdge and TensorFlow Li
 1. **On-device learning on the cheapest 8-bit chips**, not only on larger 32-bit boards
 2. **A network that sizes and grows itself** to each chip's memory, with no settings
 3. **Built-in "I don't know"**, so it doesn't confidently guess on unfamiliar input
-4. **Add sensors later without losing what it learned** (new in v0.2.0)
+4. **Add sensors later without losing what it learned** (v0.2.0)
+5. **One line to watch any existing sketch** and explain what it finds (v0.3.0)
+6. **Guided training from the Serial Monitor**, CSV export, and warnings when the system stops behaving normally (v0.4.0)
 
 ## Capabilities
 
@@ -43,6 +75,8 @@ Compared with existing tools such as Edge Impulse, ST NanoEdge and TensorFlow Li
 | **Fits any board** | 153 parameters on a Nano, 12,000+ on an ESP32, from the same code |
 | **Any sensor, any units** | Learns each input's range itself: ADC counts, °C, lux, amps... |
 | **Add sensors later** | `addInput()` brings in a new sensor and keeps everything learned |
+| **Watch any sketch (Insight)** | One `#include` reports links, what drives each output, stuck or unlinked sensors, unusual values and flicker |
+| **Guided training** | `#train` learns the system's normal behaviour, exports CSV, then warns about unusual situations and unexpected outputs |
 | **Remembers** | Saves its brain (weights and memory of examples) to EEPROM |
 | **Portable brain** | A saved brain loads on a different board with identical answers |
 | **Keeps learning after loading** | Teach more at any time; no retraining from scratch |
@@ -65,6 +99,7 @@ You'll see it learn three situations, recognize new readings, and answer "I don'
 | `SerialTeach` | Any 2–3 analog sensors | Teach from the Serial Monitor, add a third sensor later, saved to EEPROM |
 | `ButtonTeach` | 2 sensors, 2 buttons, 3 LEDs | A teachable device with no computer at all |
 | `VibrationMonitor` | MPU6050 | Learn a machine's normal vibration and flag faults |
+| `InsightAuto` | Any sensor on A0 | An ordinary sketch plus one `#include` line; GrowNet explains what it sees |
 
 ## Adding a sensor later
 
@@ -77,6 +112,55 @@ net.addInput();                                   // the third sensor is now par
 ```
 
 The new sensor starts with zero influence, so all answers stay exactly the same. Over the next few `teach()` calls it learns how much the new sensor matters. Old examples, recorded before the sensor existed, assume the first value it reads. Each reserved input costs a little memory per neuron.
+
+## Guided training in detail
+
+| Step | What happens |
+|---|---|
+| `#train` | Records inputs and the on/off pattern of outputs, learning a little at a time so your sketch keeps running |
+| Progress | Every 10 s: examples kept, neurons, and accuracy measured on **new** readings (not ones it memorised) |
+| Done | After at least 30 s and two checks at 95% or more on new readings (at most 3 minutes) |
+| `#yes` to CSV | Signals (min, max, average, spread), links, likely drivers, model summary |
+| `#yes` to links | Links between signals and the likely driver of each output |
+| Afterwards | Warns when inputs are outside the trained range or unlike anything seen, or an output disagrees with what it learned. A warning needs about 3 seconds in a row, then repeats at most every 30 s |
+| `#ok` | Teaches the current situation as normal |
+| Restart / code change | Model loads from EEPROM; a new input is added without losing learning; `#train` again to include new outputs |
+
+Limits of guided training:
+
+- Inputs up to 4 and on/off outputs up to 2 on a Nano (8 and 3 on bigger boards). On a Nano, GrowNetAuto uses about 1.1 KB of the 2 KB RAM, so large sketches may not fit.
+- It learns **normal from what it sees**: if the system is faulty while training, that becomes "normal".
+- Expect occasional borderline warnings near the edges between situations; `#ok` teaches them away.
+- The model is saved at the start of EEPROM (change with `#define GROWNET_AUTO_EEPROM_ADDR`, or turn off with `#define GROWNET_AUTO_NO_SAVE` if your sketch uses EEPROM).
+- The Nano 33 BLE has no EEPROM support here, so its model is not kept after power-off.
+
+## GrowNet Insight in detail
+
+| Message | What it means |
+|---|---|
+| **move together / opposite** | Two signals rise and fall together (or one rises as the other falls), link strength 0.7 or more |
+| **is ON mostly when …** | The input that best explains when an on/off output is ON |
+| **never changes** | An input that has had the same value for the whole time |
+| **no clear link to anything** | An input unrelated to every other signal; maybe not needed |
+| **Unusual** | A reading far outside its usual range (5 standard deviations) |
+| **switching very often** | An output that changed more than 20 times in 10 seconds |
+
+Optional extras:
+
+```cpp
+GrowNetAuto::name(A0, "temperature");               // readable names
+GrowNetAuto::watch("humidity", dht.readHumidity()); // values from sensor libraries
+GrowNetAuto::control("servo", angle);               // outputs from libraries
+GrowNetAuto::summary();                             // print all findings again
+```
+
+Good to know:
+
+- Put `#include <GrowNetAuto.h>` **after** your other includes.
+- On AVR boards it starts Serial at 115200 if your sketch hasn't; on other boards call `Serial.begin(115200)`.
+- Findings start after about 10 seconds of watching and are repeated only when they change.
+- Insight uses on-chip statistics (correlation, running averages, outlier checks). It finds **links, not causes**: you decide what they mean.
+- Library sensors (DHT, ultrasonic libraries...) are only seen if you pass their values with `watch()`.
 
 ## How big can it grow?
 
@@ -133,6 +217,7 @@ The PC test suite (`extras/test`) uses the exact Nano memory budget:
 - Widening an input range keeps learned answers unchanged
 - Adding a sensor keeps old answers unchanged, then learns a new situation that needs it (90/90)
 - Whole brain fits in the Nano's 1 KB EEPROM
+- Insight, with Nano limits: finds linked, opposite, stuck and unlinked signals, the input driving an output, an injected spike and a flickering output, with no false alarms on a random signal
 
 Timing on real boards is not measured yet. Contributions with measurements are very welcome.
 
@@ -157,7 +242,9 @@ Timing on real boards is not measured yet. Contributions with measurements are v
 ## Roadmap
 
 - [ ] Timing and power benchmarks on real boards
-- [ ] One-line `#include` that lets existing Arduino code learn
+- [x] One-line `#include` that watches existing Arduino code (v0.3.0)
+- [x] Guided training, CSV export, monitoring and reuse after changes (v0.4.0)
+- [ ] Bluetooth / phone app for the same commands
 - [ ] `AI_GUIDE.md` so AI coding tools write GrowNet-ready code
 - [ ] Robot "drive to teach" example
 - [ ] Sleeping neuron groups, using SD cards or extra memory when attached
@@ -169,6 +256,7 @@ Issues, measurements on new boards and new examples are all welcome. Please run 
 
 ```bash
 g++ -std=c++11 -Wall -Wextra -O2 -Isrc extras/test/test_grownet.cpp -o test_grownet && ./test_grownet
+g++ -std=c++11 -Wall -Wextra -O2 -Isrc -D__AVR_ATmega328P__ extras/test/test_insight.cpp -o test_insight && ./test_insight
 ```
 
 ## License

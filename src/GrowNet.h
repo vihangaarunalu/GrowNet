@@ -20,7 +20,7 @@
 #include <string.h>
 #include <math.h>
 
-#define GROWNET_VERSION "0.2.0"
+#define GROWNET_VERSION "0.4.0"
 
 // ---------- Memory budget per board (define GROWNET_POOL_BYTES yourself to override) ----------
 #ifndef GROWNET_POOL_BYTES
@@ -70,6 +70,8 @@ public:
   float    minConfidence   = 0.6f;    // below this, predict() answers UNKNOWN
   float    noveltyFactor   = 1.5f;    // larger = says "unknown" less often
   bool     detectUnknown   = true;    // set false to always return the best class
+  bool     keepDiverse     = false;   // when memory is full, replace the most similar
+                                      // example instead of the oldest (wider coverage)
 
   // pool      : a buffer you provide (declare it as a float array for alignment)
   // nIn       : number of inputs used now (raw values, any units)
@@ -121,7 +123,7 @@ public:
   // Keeps the number of inputs currently in use.
   void reset() {
     _H = _maxH < 4 ? _maxH : 4;
-    _count = 0; _head = 0; _thr = -1;
+    _count = 0; _head = 0; _cursor = 0; _thr = -1;
     for (uint8_t i = 0; i < _nIn; i++) { _lo[i] = 1; _hi[i] = 0; }   // lo > hi = range not known yet
     for (uint8_t k = 0; k < _nOut; k++) { _outB[k] = 0; _prob[k] = 1.0f / _nOut; }
     for (uint16_t j = 0; j < _maxH; j++) clearNeuron(j);
@@ -162,15 +164,7 @@ public:
   // Teach one example: these raw inputs belong to situation `label`.
   // Trains until targetAccuracy (or maxEpochs) and grows if it needs to.
   void teach(const float* raw, uint8_t label) {
-    if (label >= _nOut) return;
-    updateRanges(raw);
-    normalize(raw, _xt);
-    int16_t* dst = _bx + (uint32_t)_head * _nIn;
-    for (uint8_t i = 0; i < _nIn; i++) dst[i] = pack(_xt[i]);
-    _by[_head] = label;
-    _head = (uint8_t)((_head + 1) % _slots);
-    if (_count < _slots) _count++;
-
+    if (!remember(raw, label)) return;
     trainToTarget();
     for (uint8_t g = 0; g < maxGrowPerTeach && _H < _maxH && accuracy() < targetAccuracy; g++) {
       initNeuron(_H);
@@ -179,6 +173,65 @@ public:
     }
     updateNovelty();
   }
+
+  // ---------------- Background (non-blocking) training ----------------
+  // Store an example without training. Combine with improveSome() to learn a
+  // little at a time while the rest of the program keeps running.
+  bool remember(const float* raw, uint8_t label) {
+    if (label >= _nOut) return false;
+    updateRanges(raw);
+    normalize(raw, _xt);
+    uint8_t slot = _head;
+    if (keepDiverse && _count == _slots) slot = nearestIndex(_xt, label);
+    int16_t* dst = _bx + (uint32_t)slot * _nIn;
+    for (uint8_t i = 0; i < _nIn; i++) dst[i] = pack(_xt[i]);
+    _by[slot] = label;
+    if (slot == _head) {
+      _head = (uint8_t)((_head + 1) % _slots);
+      if (_count < _slots) _count++;
+    }
+    return true;
+  }
+
+  // Train on just `steps` remembered examples (takes turns through memory).
+  void improveSome(uint16_t steps = 1) {
+    for (uint16_t s = 0; s < steps && _count > 0; s++) {
+      if (_cursor >= _count) _cursor = 0;
+      unpack(_cursor, _xt);
+      step(_xt, _by[_cursor]);
+      _cursor++;
+    }
+  }
+
+  // Add one neuron now (returns false when the chip is full).
+  bool grow() {
+    if (_H >= _maxH) return false;
+    initNeuron(_H); _H++;
+    return true;
+  }
+
+  // Distance from these raw inputs to the nearest remembered example
+  // (normalized units; 0 = identical).
+  float distance(const float* raw) {
+    if (_count == 0) return 1e9f;
+    normalize(raw, _xt);
+    return nearestDistance(_xt, 255);
+  }
+
+  // How far the inputs are outside the ranges seen while learning
+  // (0 = inside; 0.2 = 10% of an input's range beyond its edge).
+  float rangeExcess(const float* raw) {
+    normalize(raw, _xt);
+    float worst = 0;
+    for (uint8_t i = 0; i < _nUsed; i++) {
+      float e = (_xt[i] < 0 ? -_xt[i] : _xt[i]) - 1.0f;
+      if (e > worst) worst = e;
+    }
+    return worst;
+  }
+
+  // Recompute the "I don't know" threshold after remember() calls.
+  void refresh() { updateNovelty(); }
 
   // Extra training passes, e.g. from loop() while the device is idle.
   void improve(uint16_t passes = 1) {
@@ -274,7 +327,7 @@ private:
   static const uint8_t FORMAT = 3;
   static constexpr float PACK = 16000.0f;   // normalized value -> int16
 
-  uint8_t  _nIn = 0, _nUsed = 0, _nOut = 0, _slots = 0, _count = 0, _head = 0, _best = 0;
+  uint8_t  _nIn = 0, _nUsed = 0, _nOut = 0, _slots = 0, _count = 0, _head = 0, _best = 0, _cursor = 0;
   uint16_t _stride = 0, _H = 0, _maxH = 0;
   uint32_t _rng = 1;
   bool     _unknown = true;
@@ -441,6 +494,20 @@ private:
       if (d < best) best = d;
     }
     return (float)sqrt(best / _nUsed);
+  }
+
+  // Index of the remembered example closest to x (same label preferred).
+  uint8_t nearestIndex(const float* x, uint8_t label) const {
+    float best = 1e30f; uint8_t bi = 0; bool sameFound = false;
+    for (uint8_t k = 0; k < _count; k++) {
+      bool same = _by[k] == label;
+      if (sameFound && !same) continue;
+      const int16_t* s = _bx + (uint32_t)k * _nIn;
+      float d = 0;
+      for (uint8_t i = 0; i < _nUsed; i++) { float t = x[i] - s[i] / PACK; d += t * t; }
+      if ((same && !sameFound) || d < best) { best = d; bi = k; if (same) sameFound = true; }
+    }
+    return bi;
   }
 
   // Unknown threshold = how far apart remembered examples usually are.
